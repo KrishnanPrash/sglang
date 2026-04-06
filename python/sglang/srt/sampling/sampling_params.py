@@ -68,7 +68,12 @@ class SamplingParams:
         self.max_new_tokens = max_new_tokens
         self.stop_strs = stop
         if stop_token_ids:
-            self.stop_token_ids = set(stop_token_ids)
+            # Filter out None values that can arrive from JSON payloads
+            # (e.g. "stop_token_ids": [null]) to prevent downstream crashes
+            # in torch.tensor() calls that expect integers.
+            self.stop_token_ids = {t for t in stop_token_ids if t is not None}
+            if not self.stop_token_ids:
+                self.stop_token_ids = None
         else:
             self.stop_token_ids = None
         self.stop_regex_strs = stop_regex
