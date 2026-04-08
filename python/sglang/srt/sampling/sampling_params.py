@@ -68,7 +68,6 @@ class SamplingParams:
         self.max_new_tokens = max_new_tokens
         self.stop_strs = stop
         if stop_token_ids:
-            # Filter None from JSON payloads (e.g. [null]) — see #22144
             filtered = {int(t) for t in stop_token_ids if t is not None}
             self.stop_token_ids = filtered or None
         else:
@@ -146,6 +145,13 @@ class SamplingParams:
                     f"min_new_tokens must be in [0, max_new_tokens({self.max_new_tokens})], got "
                     f"{self.min_new_tokens}."
                 )
+        if self.stop_token_ids is not None:
+            for token_id in self.stop_token_ids:
+                if not 0 <= token_id < vocab_size:
+                    raise ValueError(
+                        f"stop_token_ids must be in [0, {vocab_size - 1}], got "
+                        f"{token_id}."
+                    )
         if self.logit_bias is not None:
             for token_id in self.logit_bias:
                 if not 0 <= int(token_id) < vocab_size:
