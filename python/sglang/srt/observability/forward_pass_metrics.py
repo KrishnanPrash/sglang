@@ -28,6 +28,10 @@ from itertools import count
 
 import msgspec
 
+# Schema version. Must match the consumer (Dynamo's ForwardPassMetrics).
+# Bump when the schema changes incompatibly.
+FPM_VERSION: int = 1
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,10 +105,16 @@ class ForwardPassMetrics(
     ``wall_time`` is the iteration duration in seconds.
     An idle heartbeat (all zeros, wall_time=0) is emitted when the
     engine transitions from active to idle.
+
+    Field order must match Dynamo's ``ForwardPassMetrics`` in
+    ``dynamo.common.forward_pass_metrics`` — msgspec uses positional
+    encoding so any mismatch silently corrupts data.
     """
 
+    version: int = FPM_VERSION
     worker_id: str = ""
     dp_rank: int = 0
+    counter_id: int = 0
     wall_time: float = 0.0
     scheduled_requests: ScheduledRequestMetrics = ScheduledRequestMetrics()
     queued_requests: QueuedRequestMetrics = QueuedRequestMetrics()
@@ -198,8 +208,10 @@ class _FpmPublisherThread:
                     continue
 
             try:
+                seq = next(self._seq)
+                metrics = msgspec.structs.replace(metrics, counter_id=seq)
                 payload = encode(metrics)
-                seq_bytes = next(self._seq).to_bytes(8, "big")
+                seq_bytes = seq.to_bytes(8, "big")
                 self._pub.send_multipart(
                     (topic, seq_bytes, payload), flags=zmq.NOBLOCK
                 )
