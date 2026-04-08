@@ -21,7 +21,7 @@ from sglang.srt.managers.io_struct import (
     QueueMetrics,
     SpeculativeMetrics,
 )
-from sglang.srt.managers.scheduler import ScheduleBatch
+from sglang.srt.managers.schedule_batch import ScheduleBatch
 from sglang.srt.managers.utils import GenerationBatchResult
 from sglang.srt.observability.metrics_collector import (
     DPCooperationInfo,

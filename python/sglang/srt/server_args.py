@@ -4744,6 +4744,12 @@ class ServerArgs:
             "Each DP rank binds on port + dp_rank. Disabled when not set.",
         )
         parser.add_argument(
+            "--forward-pass-metrics-worker-id",
+            type=str,
+            default="",
+            help=argparse.SUPPRESS,
+        )
+        parser.add_argument(
             "--enable-trace",
             action="store_true",
             help="Enable opentelemetry trace",
