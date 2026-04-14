@@ -231,7 +231,10 @@ class SchedulerMetricsMixin:
         if prefill_reqs:
             stats = batch.prefill_stats
             for req in prefill_reqs:
-                prefill_lengths.add(len(req.origin_input_ids))
+                # Use extend_input_len (chunk size this iteration) rather than
+                # origin_input_ids (full prompt) so variance is consistent with
+                # sum_prefill_tokens, which also reflects per-chunk work.
+                prefill_lengths.add(req.extend_input_len)
             num_prefill_requests = stats.num_new_seqs if stats else len(prefill_reqs)
             sum_prefill_tokens = stats.log_input_tokens if stats else 0
             sum_prefill_kv_tokens = stats.log_hit_tokens if stats else 0
@@ -261,20 +264,17 @@ class SchedulerMetricsMixin:
         )
 
         prefill_q = WelfordAccumulator()
-        decode_q = WelfordAccumulator()
         for req in self.waiting_queue:
-            if len(req.output_ids) > 0:
-                decode_q.add(req.seqlen)
-            else:
-                prefill_q.add(len(req.origin_input_ids))
+            # All waiting requests are counted as prefill — even retracted
+            # (preempted) requests with output_ids > 0, because they will
+            # consume prefill resources when rescheduled. This avoids
+            # misleading the planner's TTFT/ITL regression models.
+            prefill_q.add(req.seqlen)
 
         return QueuedRequestMetrics(
             num_prefill_requests=prefill_q.n,
             sum_prefill_tokens=prefill_q.s,
             var_prefill_length=prefill_q.variance(),
-            num_decode_requests=decode_q.n,
-            sum_decode_kv_tokens=decode_q.s,
-            var_decode_kv_tokens=decode_q.variance(),
         )
 
     def update_spec_metrics(self: Scheduler, bs: int, num_accepted_tokens: int):
@@ -794,7 +794,18 @@ class SchedulerMetricsMixin:
         self: Scheduler,
         batch: ScheduleBatch,
     ):
-        """Emit per-iteration ForwardPassMetrics over ZMQ PUB."""
+        """Emit per-iteration ForwardPassMetrics over ZMQ PUB.
+
+        ``wall_time`` is measured from before ``get_next_batch_to_run()`` to
+        after ``process_batch_result()``, covering scheduling + forward +
+        output processing.
+
+        In overlap mode (``event_loop_overlap``), iteration N's output is
+        processed during iteration N+1's scheduling phase, so ``wall_time``
+        may include a small amount of N+1's scheduling overhead (~1ms).
+        This is consistent with vLLM's FPM semantics and is absorbed by the
+        planner's regression model as a constant offset in the intercept.
+        """
         if not self.enable_fpm:
             return
 
