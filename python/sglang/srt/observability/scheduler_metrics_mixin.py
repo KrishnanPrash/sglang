@@ -794,7 +794,18 @@ class SchedulerMetricsMixin:
         self: Scheduler,
         batch: ScheduleBatch,
     ):
-        """Emit per-iteration ForwardPassMetrics over ZMQ PUB."""
+        """Emit per-iteration ForwardPassMetrics over ZMQ PUB.
+
+        ``wall_time`` is measured from before ``get_next_batch_to_run()`` to
+        after ``process_batch_result()``, covering scheduling + forward +
+        output processing.
+
+        In overlap mode (``event_loop_overlap``), iteration N's output is
+        processed during iteration N+1's scheduling phase, so ``wall_time``
+        may include a small amount of N+1's scheduling overhead (~1ms).
+        This is consistent with vLLM's FPM semantics and is absorbed by the
+        planner's regression model as a constant offset in the intercept.
+        """
         if not self.enable_fpm:
             return
 
