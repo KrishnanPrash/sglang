@@ -2297,7 +2297,8 @@ class Scheduler(
         return batch
 
     def get_next_batch_to_run(self) -> Optional[ScheduleBatch]:
-        self._fpm_batch_t0 = time.monotonic()
+        if self.enable_fpm:
+            self._fpm_batch_t0 = time.monotonic()
         self._abort_on_waiting_timeout()
         self._abort_on_running_timeout()
         if self.dllm_config is not None:
@@ -3816,4 +3817,6 @@ def run_scheduler_process(
         parent_process.send_signal(signal.SIGQUIT)
     finally:
         if scheduler is not None:
+            # FPM has a background ZMQ publisher thread that needs explicit
+            # teardown to flush queued metrics and close the socket cleanly.
             scheduler._shutdown_fpm()

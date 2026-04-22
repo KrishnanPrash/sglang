@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class WelfordAccumulator:
-    """Welford's online algorithm for count / sum / population-variance.
+    """Welford's online algorithm for count / total / population-variance.
 
     Numerically stable single-pass computation.
     """
@@ -157,7 +157,7 @@ class _FpmPublisherThread:
         self._worker_id = worker_id
         self._dp_rank = dp_rank
 
-        self._ctx = zmq.Context.instance()
+        self._ctx = zmq.Context()
         self._pub = self._ctx.socket(zmq.PUB)
         self._pub.bind(endpoint)
         self._zmq = zmq
@@ -185,6 +185,7 @@ class _FpmPublisherThread:
         self._thread.join(timeout=self.SHUTDOWN_TIMEOUT)
         try:
             self._pub.close(linger=0)
+            self._ctx.term()
         except Exception:
             pass
 

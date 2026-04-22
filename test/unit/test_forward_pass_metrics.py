@@ -131,6 +131,19 @@ class TestForwardPassMetrics(unittest.TestCase):
             self.scheduler._fpm_publisher.metrics[0].wall_time, 0.042, places=4
         )
 
+    def test_emit_skips_when_cuda_events_not_ready(self):
+        batch = self._make_batch()
+        mock_start = types.SimpleNamespace(elapsed_time=lambda end: 42.0)
+        mock_end = types.SimpleNamespace(query=lambda: False)
+        result = types.SimpleNamespace(
+            fpm_start_event=mock_start,
+            fpm_end_event=mock_end,
+        )
+
+        self.scheduler._emit_forward_pass_metrics(batch, result)
+
+        self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 0)
+
     def test_emit_falls_back_to_monotonic_without_events(self):
         batch = self._make_batch()
 
@@ -151,7 +164,7 @@ class TestForwardPassMetrics(unittest.TestCase):
             enable_metrics=False,
             enable_metrics_for_all_schedulers=False,
             extra_metric_labels=None,
-            forward_pass_metrics_port=20380,
+            enable_forward_pass_metrics=True,
             forward_pass_metrics_worker_id="endpoint-42",
             kv_events_config=None,
         )
@@ -172,6 +185,8 @@ class TestForwardPassMetrics(unittest.TestCase):
         self.assertEqual(scheduler._fpm_dp_rank, 2)
         self.assertEqual(scheduler._fpm_publisher.worker_id, "endpoint-42")
         self.assertEqual(scheduler._fpm_publisher.dp_rank, 2)
+        self.assertTrue(scheduler._fpm_publisher.endpoint.startswith("ipc://"))
+        self.assertIsNotNone(scheduler.server_args.forward_pass_metrics_ipc_name)
 
     def test_init_fpm_disabled_on_non_last_pp_rank(self):
         scheduler = _DummyScheduler()
@@ -179,7 +194,7 @@ class TestForwardPassMetrics(unittest.TestCase):
             enable_metrics=False,
             enable_metrics_for_all_schedulers=False,
             extra_metric_labels=None,
-            forward_pass_metrics_port=20380,
+            enable_forward_pass_metrics=True,
             forward_pass_metrics_worker_id="endpoint-42",
             kv_events_config=None,
         )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import tempfile
 import time
 from collections import defaultdict
 from contextlib import contextmanager
@@ -185,9 +186,8 @@ class SchedulerMetricsMixin:
     def _init_fpm(self: Scheduler):
         """Initialize Forward Pass Metrics (FPM) publisher if configured."""
         self.enable_fpm = False
-        fpm_base_port = self.server_args.forward_pass_metrics_port
         if (
-            fpm_base_port is not None
+            self.server_args.enable_forward_pass_metrics
             and self.attn_tp_rank == 0
             and self.pp_rank == self.pp_size - 1
         ):
@@ -196,19 +196,21 @@ class SchedulerMetricsMixin:
             )
 
             self._fpm_dp_rank = self.dp_rank if self.dp_rank is not None else 0
-            port = fpm_base_port + self._fpm_dp_rank
-            self._fpm_worker_id = getattr(
-                self.server_args, "forward_pass_metrics_worker_id", ""
-            )
+            self._fpm_worker_id = self.server_args.forward_pass_metrics_worker_id
+            endpoint = self.server_args.forward_pass_metrics_ipc_name
+            if endpoint is None:
+                ipc_path = tempfile.NamedTemporaryFile(delete=False).name
+                endpoint = f"ipc://{ipc_path}"
+                self.server_args.forward_pass_metrics_ipc_name = endpoint
             self._fpm_publisher = _FpmPublisherThread(
-                f"tcp://*:{port}",
+                endpoint,
                 worker_id=self._fpm_worker_id,
                 dp_rank=self._fpm_dp_rank,
             )
             self.enable_fpm = True
             logger.info(
-                "FPM: ZMQ PUB bound on tcp://*:%d (dp_rank=%d)",
-                port,
+                "FPM: ZMQ PUB bound on %s (dp_rank=%d)",
+                endpoint,
                 self._fpm_dp_rank,
             )
 
@@ -815,12 +817,13 @@ class SchedulerMetricsMixin:
             ForwardPassMetrics,
         )
 
-        wall_time = 0.0
-        if (
+        has_events = (
             result is not None
             and getattr(result, "fpm_end_event", None) is not None
-            and result.fpm_end_event.query()
-        ):
+        )
+        if has_events:
+            if not result.fpm_end_event.query():
+                return
             wall_time = (
                 result.fpm_start_event.elapsed_time(result.fpm_end_event) / 1000.0
             )
