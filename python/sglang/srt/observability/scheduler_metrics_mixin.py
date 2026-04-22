@@ -186,7 +186,11 @@ class SchedulerMetricsMixin:
         """Initialize Forward Pass Metrics (FPM) publisher if configured."""
         self.enable_fpm = False
         fpm_base_port = self.server_args.forward_pass_metrics_port
-        if fpm_base_port is not None and self.attn_tp_rank == 0:
+        if (
+            fpm_base_port is not None
+            and self.attn_tp_rank == 0
+            and self.pp_rank == self.pp_size - 1
+        ):
             from sglang.srt.observability.forward_pass_metrics import (
                 _FpmPublisherThread,
             )
@@ -796,18 +800,13 @@ class SchedulerMetricsMixin:
     def _emit_forward_pass_metrics(
         self: Scheduler,
         batch: ScheduleBatch,
+        result=None,
     ):
         """Emit per-iteration ForwardPassMetrics over ZMQ PUB.
 
-        ``wall_time`` is measured from before ``get_next_batch_to_run()`` to
-        after ``process_batch_result()``, covering scheduling + forward +
-        output processing.
-
-        In overlap mode (``event_loop_overlap``), iteration N's output is
-        processed during iteration N+1's scheduling phase, so ``wall_time``
-        may include a small amount of N+1's scheduling overhead (~1ms).
-        This is consistent with vLLM's FPM semantics and is absorbed by the
-        planner's regression model as a constant offset in the intercept.
+        Uses CUDA event timing when available (GPU-accurate forward pass
+        duration). Falls back to monotonic clock when events are not present
+        (e.g. embedding models, speculative decoding v1).
         """
         if not self.enable_fpm:
             return
@@ -816,10 +815,22 @@ class SchedulerMetricsMixin:
             ForwardPassMetrics,
         )
 
+        wall_time = 0.0
+        if (
+            result is not None
+            and getattr(result, "fpm_end_event", None) is not None
+            and result.fpm_end_event.query()
+        ):
+            wall_time = (
+                result.fpm_start_event.elapsed_time(result.fpm_end_event) / 1000.0
+            )
+        else:
+            wall_time = max(0.0, time.monotonic() - batch.fpm_start_time)
+
         fpm = ForwardPassMetrics(
             worker_id=self._fpm_worker_id,
             dp_rank=self._fpm_dp_rank,
-            wall_time=max(0.0, time.monotonic() - batch.fpm_start_time),
+            wall_time=wall_time,
             scheduled_requests=self._build_scheduled_request_metrics(batch),
             queued_requests=self._build_queued_request_metrics(),
         )
