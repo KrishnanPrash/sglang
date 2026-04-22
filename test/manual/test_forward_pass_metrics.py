@@ -27,8 +27,8 @@ def test_schema_roundtrip():
     acc = WelfordAccumulator()
     for v in [10, 20, 30]:
         acc.add(v)
-    assert acc.n == 3
-    assert acc.s == 60
+    assert acc.count == 3
+    assert acc.total == 60
     var = acc.variance()
     assert abs(var - 66.667) < 0.01, f"Expected ~66.667, got {var}"
 

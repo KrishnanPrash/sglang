@@ -41,26 +41,26 @@ class WelfordAccumulator:
     Numerically stable single-pass computation.
     """
 
-    __slots__ = ("n", "s", "_mean", "_m2")
+    __slots__ = ("count", "total", "_mean", "_m2")
 
     def __init__(self) -> None:
-        self.n = 0
-        self.s = 0
+        self.count = 0
+        self.total = 0
         self._mean = 0.0
         self._m2 = 0.0
 
     def add(self, v: int) -> None:
-        self.n += 1
-        self.s += v
+        self.count += 1
+        self.total += v
         delta = v - self._mean
-        self._mean += delta / self.n
+        self._mean += delta / self.count
         delta2 = v - self._mean
         self._m2 += delta * delta2
 
     def variance(self) -> float:
-        if self.n == 0:
+        if self.count == 0:
             return 0.0
-        return self._m2 / self.n
+        return self._m2 / self.count
 
 
 class ScheduledRequestMetrics(

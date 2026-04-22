@@ -1392,13 +1392,11 @@ class Scheduler(
                 continue
 
             # Get the next batch to run
-            fpm_t0 = time.monotonic()
             batch = self.get_next_batch_to_run()
             self.cur_batch = batch
 
             # Launch the current batch
             if batch:
-                batch.fpm_start_time = fpm_t0
                 result = self.run_batch(batch)
                 self.process_batch_result(batch, result)
             else:
@@ -1430,7 +1428,6 @@ class Scheduler(
                 continue
 
             # Get the next batch to run
-            fpm_t0 = time.monotonic()
             batch = self.get_next_batch_to_run()
             self.cur_batch = batch
             disable_overlap_for_batch = self.is_disable_overlap_for_batch(batch)
@@ -1442,7 +1439,6 @@ class Scheduler(
 
             # Launch the current batch
             if batch:
-                batch.fpm_start_time = fpm_t0
                 batch_result = self.run_batch(batch)
                 self.result_queue.append((batch.copy(), batch_result))
             else:
@@ -2301,6 +2297,7 @@ class Scheduler(
         return batch
 
     def get_next_batch_to_run(self) -> Optional[ScheduleBatch]:
+        self._fpm_batch_t0 = time.monotonic()
         self._abort_on_waiting_timeout()
         self._abort_on_running_timeout()
         if self.dllm_config is not None:
@@ -2406,6 +2403,7 @@ class Scheduler(
 
         if ret:
             set_schedule_time_batch(ret)
+            ret.fpm_start_time = self._fpm_batch_t0
 
         return ret
 

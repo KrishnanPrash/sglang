@@ -168,7 +168,22 @@ class SchedulerMetricsMixin:
 
         self.init_kv_events(self.server_args.kv_events_config)
 
-        # Forward Pass Metrics (FPM) -- per-iteration scheduler telemetry
+        self._init_fpm()
+
+        self.scheduler_status_logger = SchedulerStatusLogger.maybe_create(
+            enable_metrics=self.enable_metrics
+        )
+
+    def init_kv_events(self: Scheduler, kv_events_config: Optional[str]):
+        self.enable_kv_cache_events = bool(kv_events_config and self.attn_tp_rank == 0)
+
+        if self.enable_kv_cache_events:
+            self.kv_event_publisher = EventPublisherFactory.create(
+                kv_events_config, self.attn_dp_rank
+            )
+
+    def _init_fpm(self: Scheduler):
+        """Initialize Forward Pass Metrics (FPM) publisher if configured."""
         self.enable_fpm = False
         fpm_base_port = self.server_args.forward_pass_metrics_port
         if fpm_base_port is not None and self.attn_tp_rank == 0:
@@ -191,18 +206,6 @@ class SchedulerMetricsMixin:
                 "FPM: ZMQ PUB bound on tcp://*:%d (dp_rank=%d)",
                 port,
                 self._fpm_dp_rank,
-            )
-
-        self.scheduler_status_logger = SchedulerStatusLogger.maybe_create(
-            enable_metrics=self.enable_metrics
-        )
-
-    def init_kv_events(self: Scheduler, kv_events_config: Optional[str]):
-        self.enable_kv_cache_events = bool(kv_events_config and self.attn_tp_rank == 0)
-
-        if self.enable_kv_cache_events:
-            self.kv_event_publisher = EventPublisherFactory.create(
-                kv_events_config, self.attn_dp_rank
             )
 
     def _build_scheduled_request_metrics(self: Scheduler, batch: ScheduleBatch):
@@ -249,8 +252,8 @@ class SchedulerMetricsMixin:
             sum_prefill_tokens=sum_prefill_tokens,
             var_prefill_length=prefill_lengths.variance(),
             sum_prefill_kv_tokens=sum_prefill_kv_tokens,
-            num_decode_requests=decode_kv.n,
-            sum_decode_kv_tokens=decode_kv.s,
+            num_decode_requests=decode_kv.count,
+            sum_decode_kv_tokens=decode_kv.total,
             var_decode_kv_tokens=decode_kv.variance(),
         )
 
@@ -269,11 +272,11 @@ class SchedulerMetricsMixin:
                 prefill_q.add(len(req.origin_input_ids))
 
         return QueuedRequestMetrics(
-            num_prefill_requests=prefill_q.n,
-            sum_prefill_tokens=prefill_q.s,
+            num_prefill_requests=prefill_q.count,
+            sum_prefill_tokens=prefill_q.total,
             var_prefill_length=prefill_q.variance(),
-            num_decode_requests=decode_q.n,
-            sum_decode_kv_tokens=decode_q.s,
+            num_decode_requests=decode_q.count,
+            sum_decode_kv_tokens=decode_q.total,
             var_decode_kv_tokens=decode_q.variance(),
         )
 

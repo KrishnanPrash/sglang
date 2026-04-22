@@ -108,6 +108,7 @@ class TestForwardPassMetrics(unittest.TestCase):
             extra_metric_labels=None,
             forward_pass_metrics_port=20380,
             forward_pass_metrics_worker_id="endpoint-42",
+            kv_events_config=None,
         )
         scheduler.attn_tp_rank = 0
         scheduler.dp_rank = 2
