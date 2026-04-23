@@ -197,11 +197,12 @@ class SchedulerMetricsMixin:
 
             self._fpm_dp_rank = self.dp_rank if self.dp_rank is not None else 0
             self._fpm_worker_id = self.server_args.forward_pass_metrics_worker_id
-            endpoint = self.server_args.forward_pass_metrics_ipc_name
-            if endpoint is None:
+            base_endpoint = self.server_args.forward_pass_metrics_ipc_name
+            if base_endpoint is None:
                 ipc_path = tempfile.NamedTemporaryFile(delete=False).name
-                endpoint = f"ipc://{ipc_path}"
-                self.server_args.forward_pass_metrics_ipc_name = endpoint
+                base_endpoint = f"ipc://{ipc_path}"
+                self.server_args.forward_pass_metrics_ipc_name = base_endpoint
+            endpoint = f"{base_endpoint}.{self._fpm_dp_rank}"
             self._fpm_publisher = _FpmPublisherThread(
                 endpoint,
                 worker_id=self._fpm_worker_id,
@@ -243,7 +244,9 @@ class SchedulerMetricsMixin:
                 prefill_lengths.add(len(req.origin_input_ids))
             num_prefill_requests = stats.num_new_seqs if stats else len(prefill_reqs)
             sum_prefill_tokens = stats.log_input_tokens if stats else 0
-            sum_prefill_kv_tokens = stats.log_hit_tokens if stats else 0
+            sum_prefill_kv_tokens = sum(
+                len(req.prefix_indices) for req in prefill_reqs
+            )
 
         decode_kv = WelfordAccumulator()
         if batch.forward_mode.is_mixed():
@@ -269,13 +272,24 @@ class SchedulerMetricsMixin:
             WelfordAccumulator,
         )
 
+        from sglang.srt.disaggregation.utils import DisaggregationMode
+
         prefill_q = WelfordAccumulator()
         decode_q = WelfordAccumulator()
-        for req in self.waiting_queue:
-            if len(req.output_ids) > 0:
-                decode_q.add(req.seqlen)
-            else:
+        if self.disaggregation_mode == DisaggregationMode.PREFILL.value:
+            for req in self.disagg_prefill_bootstrap_queue.queue:
                 prefill_q.add(len(req.origin_input_ids))
+        elif self.disaggregation_mode == DisaggregationMode.DECODE.value:
+            for req in self.disagg_decode_prealloc_queue.queue:
+                decode_q.add(req.seqlen)
+            for req in self.disagg_decode_transfer_queue.queue:
+                decode_q.add(req.seqlen)
+        else:
+            for req in self.waiting_queue:
+                if len(req.output_ids) > 0:
+                    decode_q.add(req.seqlen)
+                else:
+                    prefill_q.add(len(req.origin_input_ids))
 
         return QueuedRequestMetrics(
             num_prefill_requests=prefill_q.count,
