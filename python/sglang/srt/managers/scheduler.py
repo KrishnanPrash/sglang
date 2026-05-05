@@ -2551,7 +2551,8 @@ class Scheduler(
 
         if ret:
             set_schedule_time_batch(ret)
-            ret.fpm_start_time = self._fpm_batch_t0
+            if self.enable_fpm:
+                ret.fpm_start_time = self._fpm_batch_t0
 
         return ret
 
