@@ -213,9 +213,7 @@ class _FpmPublisherThread:
                 metrics = msgspec.structs.replace(metrics, counter_id=seq)
                 payload = encode(metrics)
                 seq_bytes = seq.to_bytes(8, "big")
-                self._pub.send_multipart(
-                    (topic, seq_bytes, payload), flags=zmq.NOBLOCK
-                )
+                self._pub.send_multipart((topic, seq_bytes, payload), flags=zmq.NOBLOCK)
                 last_publish = time.monotonic()
             except zmq.Again:
                 pass

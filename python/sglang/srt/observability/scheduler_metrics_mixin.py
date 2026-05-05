@@ -248,12 +248,8 @@ class SchedulerMetricsMixin:
         prefill_lengths = WelfordAccumulator()
 
         if batch.forward_mode.is_mixed():
-            decode_req_ids = {
-                id(req) for req in batch.decoding_reqs or []
-            }
-            prefill_reqs = [
-                req for req in batch.reqs if id(req) not in decode_req_ids
-            ]
+            decode_req_ids = {id(req) for req in batch.decoding_reqs or []}
+            prefill_reqs = [req for req in batch.reqs if id(req) not in decode_req_ids]
         elif batch.forward_mode.is_extend():
             prefill_reqs = batch.reqs
         else:
@@ -265,9 +261,7 @@ class SchedulerMetricsMixin:
                 prefill_lengths.add(len(req.origin_input_ids))
             num_prefill_requests = stats.num_new_seqs if stats else len(prefill_reqs)
             sum_prefill_tokens = stats.log_input_tokens if stats else 0
-            sum_prefill_kv_tokens = sum(
-                len(req.prefix_indices) for req in prefill_reqs
-            )
+            sum_prefill_kv_tokens = sum(len(req.prefix_indices) for req in prefill_reqs)
 
         decode_kv = WelfordAccumulator()
         if batch.forward_mode.is_mixed():
@@ -848,8 +842,7 @@ class SchedulerMetricsMixin:
         )
 
         has_events = (
-            result is not None
-            and getattr(result, "fpm_end_event", None) is not None
+            result is not None and getattr(result, "fpm_end_event", None) is not None
         )
         if has_events:
             if not result.fpm_end_event.query():
