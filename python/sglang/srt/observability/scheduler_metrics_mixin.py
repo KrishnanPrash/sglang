@@ -272,14 +272,12 @@ class SchedulerMetricsMixin:
             WelfordAccumulator,
         )
 
-        from sglang.srt.disaggregation.utils import DisaggregationMode
-
         prefill_q = WelfordAccumulator()
         decode_q = WelfordAccumulator()
-        if self.disaggregation_mode == DisaggregationMode.PREFILL.value:
+        if self.disaggregation_mode == DisaggregationMode.PREFILL:
             for req in self.disagg_prefill_bootstrap_queue.queue:
                 prefill_q.add(len(req.origin_input_ids))
-        elif self.disaggregation_mode == DisaggregationMode.DECODE.value:
+        elif self.disaggregation_mode == DisaggregationMode.DECODE:
             for req in self.disagg_decode_prealloc_queue.queue:
                 decode_q.add(req.seqlen)
             for req in self.disagg_decode_transfer_queue.queue:

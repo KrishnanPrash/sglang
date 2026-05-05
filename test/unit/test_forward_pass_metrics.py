@@ -2,6 +2,7 @@ import types
 import unittest
 from unittest.mock import patch
 
+from sglang.srt.disaggregation.utils import DisaggregationMode
 from sglang.srt.observability.scheduler_metrics_mixin import (
     PrefillStats,
     SchedulerMetricsMixin,
@@ -9,9 +10,15 @@ from sglang.srt.observability.scheduler_metrics_mixin import (
 
 
 class _FakeReq:
-    def __init__(self, prompt_len: int, output_len: int = 0):
+    def __init__(
+        self,
+        prompt_len: int,
+        output_len: int = 0,
+        prefix_len: int = 0,
+    ):
         self.origin_input_ids = list(range(prompt_len))
         self.output_ids = list(range(output_len))
+        self.prefix_indices = list(range(prefix_len))
         self.seqlen = prompt_len + output_len
 
 
@@ -60,6 +67,7 @@ class TestForwardPassMetrics(unittest.TestCase):
         self.scheduler._fpm_dp_rank = 0
         self.scheduler._fpm_publisher = _CollectingPublisher()
         self.scheduler.waiting_queue = []
+        self.scheduler.disaggregation_mode = DisaggregationMode.NULL
 
     def _make_batch(self, **overrides):
         defaults = dict(
@@ -77,8 +85,8 @@ class TestForwardPassMetrics(unittest.TestCase):
         self.scheduler._fpm_dp_rank = 3
         self.scheduler.waiting_queue = [_FakeReq(6), _FakeReq(4, output_len=2)]
 
-        prefill_a = _FakeReq(10)
-        prefill_b = _FakeReq(14)
+        prefill_a = _FakeReq(10, prefix_len=2)
+        prefill_b = _FakeReq(14, prefix_len=3)
         decode_req = _FakeReq(8, output_len=3)
         batch = self._make_batch(
             forward_mode=_FakeForwardMode(is_mixed=True, is_extend=True),
@@ -166,6 +174,7 @@ class TestForwardPassMetrics(unittest.TestCase):
             extra_metric_labels=None,
             enable_forward_pass_metrics=True,
             forward_pass_metrics_worker_id="endpoint-42",
+            forward_pass_metrics_ipc_name=None,
             kv_events_config=None,
         )
         scheduler.attn_tp_rank = 0
@@ -196,6 +205,7 @@ class TestForwardPassMetrics(unittest.TestCase):
             extra_metric_labels=None,
             enable_forward_pass_metrics=True,
             forward_pass_metrics_worker_id="endpoint-42",
+            forward_pass_metrics_ipc_name=None,
             kv_events_config=None,
         )
         scheduler.attn_tp_rank = 0
