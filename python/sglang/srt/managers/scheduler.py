@@ -2991,18 +2991,10 @@ class Scheduler(
                 with self.forward_stream_ctx:
                     self.forward_stream.wait_stream(self.schedule_stream)
                     self.future_map.resolve_future(model_worker_batch)
-                    if self.enable_fpm:
-                        fpm_start = torch.cuda.Event(enable_timing=True)
-                        fpm_start.record()
                     batch_result = self.model_worker.forward_batch_generation(
                         model_worker_batch
                         # here pp is not compatible with overlap
                     )
-                    if self.enable_fpm:
-                        fpm_end = torch.cuda.Event(enable_timing=True)
-                        fpm_end.record()
-                        batch_result.fpm_start_event = fpm_start
-                        batch_result.fpm_end_event = fpm_end
                     # FIXME(lsyin): maybe move this to forward_batch_generation
                     batch_result.copy_done = self.device_module.Event()
                     if batch_result.delay_sample_func is None:
@@ -3033,17 +3025,9 @@ class Scheduler(
                     if self.spec_algorithm.is_none()
                     else {}
                 )
-                if self.enable_fpm:
-                    fpm_start = torch.cuda.Event(enable_timing=True)
-                    fpm_start.record()
                 batch_result = self.model_worker.forward_batch_generation(
                     worker_batch_or_batch, **kwargs
                 )
-                if self.enable_fpm:
-                    fpm_end = torch.cuda.Event(enable_timing=True)
-                    fpm_end.record()
-                    batch_result.fpm_start_event = fpm_start
-                    batch_result.fpm_end_event = fpm_end
                 future_indices_or_next_token_ids = batch_result.next_token_ids
                 self.update_cache_from_scheduler(batch, batch_result)
 

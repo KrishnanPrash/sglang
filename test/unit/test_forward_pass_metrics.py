@@ -66,6 +66,8 @@ class TestForwardPassMetrics(unittest.TestCase):
         self.scheduler._fpm_worker_id = "worker-7"
         self.scheduler._fpm_dp_rank = 0
         self.scheduler._fpm_publisher = _CollectingPublisher()
+        self.scheduler._fpm_uses_device_timer = False
+        self.scheduler._fpm_gpu_time_acc = 0.0
         self.scheduler.waiting_queue = []
         self.scheduler.disaggregation_mode = DisaggregationMode.NULL
 
@@ -123,36 +125,35 @@ class TestForwardPassMetrics(unittest.TestCase):
         self.assertEqual(metrics.queued_requests.num_prefill_requests, 1)
         self.assertEqual(metrics.queued_requests.num_decode_requests, 1)
 
-    def test_emit_uses_cuda_events_when_available(self):
-        batch = self._make_batch()
-        mock_start = types.SimpleNamespace(elapsed_time=lambda end: 42.0)
-        mock_end = types.SimpleNamespace(query=lambda: True)
-        result = types.SimpleNamespace(
-            fpm_start_event=mock_start,
-            fpm_end_event=mock_end,
+    def test_emit_uses_device_timer_gpu_time(self):
+        self.scheduler._fpm_uses_device_timer = True
+        self.scheduler._fpm_gpu_time_acc = 0.042
+        self.scheduler.forward_pass_device_timer = types.SimpleNamespace(
+            _report=lambda: None,
         )
+        batch = self._make_batch()
 
-        self.scheduler._emit_forward_pass_metrics(batch, result)
+        self.scheduler._emit_forward_pass_metrics(batch)
 
         self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 1)
         self.assertAlmostEqual(
             self.scheduler._fpm_publisher.metrics[0].wall_time, 0.042, places=4
         )
+        self.assertAlmostEqual(self.scheduler._fpm_gpu_time_acc, 0.0)
 
-    def test_emit_skips_when_cuda_events_not_ready(self):
-        batch = self._make_batch()
-        mock_start = types.SimpleNamespace(elapsed_time=lambda end: 42.0)
-        mock_end = types.SimpleNamespace(query=lambda: False)
-        result = types.SimpleNamespace(
-            fpm_start_event=mock_start,
-            fpm_end_event=mock_end,
+    def test_emit_skips_when_device_timer_zero(self):
+        self.scheduler._fpm_uses_device_timer = True
+        self.scheduler._fpm_gpu_time_acc = 0.0
+        self.scheduler.forward_pass_device_timer = types.SimpleNamespace(
+            _report=lambda: None,
         )
+        batch = self._make_batch()
 
-        self.scheduler._emit_forward_pass_metrics(batch, result)
+        self.scheduler._emit_forward_pass_metrics(batch)
 
         self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 0)
 
-    def test_emit_falls_back_to_monotonic_without_events(self):
+    def test_emit_uses_monotonic_without_device_timer(self):
         batch = self._make_batch()
 
         with patch(
@@ -164,6 +165,47 @@ class TestForwardPassMetrics(unittest.TestCase):
         self.assertEqual(len(self.scheduler._fpm_publisher.metrics), 1)
         self.assertAlmostEqual(
             self.scheduler._fpm_publisher.metrics[0].wall_time, 0.035, places=4
+        )
+
+    def test_disagg_prefill_queued_metrics(self):
+        self.scheduler.disaggregation_mode = DisaggregationMode.PREFILL
+        self.scheduler.disagg_prefill_bootstrap_queue = types.SimpleNamespace(
+            queue=[_FakeReq(100), _FakeReq(200), _FakeReq(50)],
+        )
+        batch = self._make_batch()
+
+        with patch(
+            "sglang.srt.observability.scheduler_metrics_mixin.time.monotonic",
+            return_value=101.0,
+        ):
+            self.scheduler._emit_forward_pass_metrics(batch)
+
+        metrics = self.scheduler._fpm_publisher.metrics[0]
+        self.assertEqual(metrics.queued_requests.num_prefill_requests, 3)
+        self.assertEqual(metrics.queued_requests.sum_prefill_tokens, 350)
+        self.assertEqual(metrics.queued_requests.num_decode_requests, 0)
+
+    def test_disagg_decode_queued_metrics(self):
+        self.scheduler.disaggregation_mode = DisaggregationMode.DECODE
+        self.scheduler.disagg_decode_prealloc_queue = types.SimpleNamespace(
+            queue=[_FakeReq(10, output_len=5), _FakeReq(20, output_len=10)],
+        )
+        self.scheduler.disagg_decode_transfer_queue = types.SimpleNamespace(
+            queue=[_FakeReq(30, output_len=15)],
+        )
+        batch = self._make_batch()
+
+        with patch(
+            "sglang.srt.observability.scheduler_metrics_mixin.time.monotonic",
+            return_value=101.0,
+        ):
+            self.scheduler._emit_forward_pass_metrics(batch)
+
+        metrics = self.scheduler._fpm_publisher.metrics[0]
+        self.assertEqual(metrics.queued_requests.num_prefill_requests, 0)
+        self.assertEqual(metrics.queued_requests.num_decode_requests, 3)
+        self.assertEqual(
+            metrics.queued_requests.sum_decode_kv_tokens, 15 + 30 + 45
         )
 
     def test_init_metrics_uses_server_worker_id(self):

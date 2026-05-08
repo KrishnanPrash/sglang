@@ -229,11 +229,23 @@ class SchedulerMetricsMixin:
                 worker_id=self._fpm_worker_id,
                 dp_rank=self._fpm_dp_rank,
             )
+            self._fpm_gpu_time_acc = 0.0
+            self._fpm_uses_device_timer = False
+            if hasattr(self, "forward_pass_device_timer"):
+
+                def _fpm_device_timer_reporter(t, **_kwargs):
+                    self._fpm_gpu_time_acc += t
+
+                self.forward_pass_device_timer.add_reporter(
+                    _fpm_device_timer_reporter
+                )
+                self._fpm_uses_device_timer = True
             self.enable_fpm = True
             logger.info(
-                "FPM: ZMQ PUB bound on %s (dp_rank=%d)",
+                "FPM: ZMQ PUB bound on %s (dp_rank=%d, device_timer=%s)",
                 endpoint,
                 self._fpm_dp_rank,
+                self._fpm_uses_device_timer,
             )
 
     def _build_scheduled_request_metrics(self: Scheduler, batch: ScheduleBatch):
@@ -830,9 +842,9 @@ class SchedulerMetricsMixin:
     ):
         """Emit per-iteration ForwardPassMetrics over ZMQ PUB.
 
-        Uses CUDA event timing when available (GPU-accurate forward pass
-        duration). Falls back to monotonic clock when events are not present
-        (e.g. embedding models, speculative decoding v1).
+        Prefers GPU-accurate timing from DeviceTimer (which wraps
+        model_runner.forward / cuda_graph.replay via PR #24197).
+        Falls back to monotonic clock when DeviceTimer is not enabled.
         """
         if not self.enable_fpm:
             return
@@ -841,15 +853,12 @@ class SchedulerMetricsMixin:
             ForwardPassMetrics,
         )
 
-        has_events = (
-            result is not None and getattr(result, "fpm_end_event", None) is not None
-        )
-        if has_events:
-            if not result.fpm_end_event.query():
+        if self._fpm_uses_device_timer:
+            self.forward_pass_device_timer._report()
+            wall_time = self._fpm_gpu_time_acc
+            self._fpm_gpu_time_acc = 0.0
+            if wall_time == 0.0:
                 return
-            wall_time = (
-                result.fpm_start_event.elapsed_time(result.fpm_end_event) / 1000.0
-            )
         else:
             wall_time = max(0.0, time.monotonic() - batch.fpm_start_time)
 
