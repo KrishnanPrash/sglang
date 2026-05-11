@@ -204,9 +204,7 @@ class TestForwardPassMetrics(unittest.TestCase):
         metrics = self.scheduler._fpm_publisher.metrics[0]
         self.assertEqual(metrics.queued_requests.num_prefill_requests, 0)
         self.assertEqual(metrics.queued_requests.num_decode_requests, 3)
-        self.assertEqual(
-            metrics.queued_requests.sum_decode_kv_tokens, 15 + 30 + 45
-        )
+        self.assertEqual(metrics.queued_requests.sum_decode_kv_tokens, 15 + 30 + 45)
 
     def test_init_metrics_uses_server_worker_id(self):
         scheduler = _DummyScheduler()

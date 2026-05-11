@@ -87,6 +87,8 @@ class KvMetrics:
 
 
 class SchedulerMetricsMixin:
+    enable_fpm: bool = False
+
     def init_metrics(
         self: Scheduler, tp_rank: int, pp_rank: int, dp_rank: Optional[int]
     ):
@@ -236,9 +238,7 @@ class SchedulerMetricsMixin:
                 self._fpm_gpu_time_acc += t
 
             if hasattr(self, "forward_pass_device_timer"):
-                self.forward_pass_device_timer.add_reporter(
-                    _fpm_device_timer_reporter
-                )
+                self.forward_pass_device_timer.add_reporter(_fpm_device_timer_reporter)
             else:
                 self.forward_pass_device_timer = DeviceTimer(
                     reporter=_fpm_device_timer_reporter,
