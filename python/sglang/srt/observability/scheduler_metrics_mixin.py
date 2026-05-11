@@ -231,16 +231,19 @@ class SchedulerMetricsMixin:
                 dp_rank=self._fpm_dp_rank,
             )
             self._fpm_gpu_time_acc = 0.0
-            self._fpm_uses_device_timer = False
+
+            def _fpm_device_timer_reporter(t, **_kwargs):
+                self._fpm_gpu_time_acc += t
+
             if hasattr(self, "forward_pass_device_timer"):
-
-                def _fpm_device_timer_reporter(t, **_kwargs):
-                    self._fpm_gpu_time_acc += t
-
                 self.forward_pass_device_timer.add_reporter(
                     _fpm_device_timer_reporter
                 )
-                self._fpm_uses_device_timer = True
+            else:
+                self.forward_pass_device_timer = DeviceTimer(
+                    reporter=_fpm_device_timer_reporter,
+                )
+            self._fpm_uses_device_timer = True
             self.enable_fpm = True
             logger.info(
                 "FPM: ZMQ PUB bound on %s (dp_rank=%d, device_timer=%s)",
